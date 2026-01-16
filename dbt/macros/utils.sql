@@ -132,3 +132,70 @@
     {{ development_date_filter(enabled=enabled, n_days=n_days, date_col=date_col) }}
 
 {% endmacro %}
+
+
+{#
+    Macro: validate_start_end_date()
+    Description:
+        Macro is triggered on-run-start. Will parse --vars for start_date and end_date. 
+        If start_date and end_date have not been defined, it will set those variables for yesterday.
+        These variables should be defined via a namespace object at model level, since this macro executes on-run-start for no model in specific.
+        Will log those variables and issue a warning if they weren't sent via dbt command. 
+    Args: N/A
+    Returns: Void
+#}
+{%- macro validate_start_end_date() %}
+
+    {%- set start_date = var('start_date', start_date) -%}
+    {%- set end_date = var('end_date', end_date) -%}
+
+    {{ log("INFO - validate start_date - Parsed variable: " ~ start_date, info=True) }}
+    {{ log("INFO - validate end_date - Parsed variable: " ~ end_date, info=True) }}
+
+    {%- if start_date is not defined %}
+        {{ exceptions.warn('WARNING - start_date is undefined which can lead a model to materialize incorrectly. Consider passing them via --vars "{\'start_date\': \'YYYY-MM-DD\'}"') }}
+        {{ log('WARNING - Reprocessing one day with start_date default as: ' ~ get_date_ndays_ago(1), info=True) }}
+    {%- endif %}
+
+    {%- if end_date is not defined %}
+        {{ exceptions.warn('WARNING - end_date is undefined which can lead a model to materialize incorrectly. Consider passing them via --vars "{\'end_date\': \'YYYY-MM-DD\'}"') }}
+        {{ log('WARNING - Reprocessing one day with end_date default as: ' ~ get_date_yesterday(1), info=True) }}
+    {%- endif %}
+
+{%- endmacro %}
+
+
+
+
+
+
+{% macro set_query_tag() -%}
+    
+    {% set new_query_tag = get_custom_query_tag() %}
+
+    {% if new_query_tag %}
+        {% set original_query_tag = get_current_query_tag() %}
+        {{ log("Setting query_tag to '" ~ new_query_tag ~ "'. Will reset to '" ~ original_query_tag ~ "' after materialization.") }}
+        {% do run_query("alter session set query_tag = '{}'".format(new_query_tag)) %}
+        {{ return(original_query_tag)}}
+    {% endif %}
+    {{ return(none)}}
+
+{% endmacro %}
+
+{% macro get_custom_query_tag() %}
+
+    {# -- THE BELOW ASSUMES WE ONLY HAVE THESE TARGETS: DEV, PROD, STG, CI #}
+    {% set env_value = target.name | upper %}
+
+    {% set model_file_path_list = model.original_file_path.split('/') %}
+    {# -- BELOW LOGIC ASSUMES MODEL STRUCTURE AS `./models/<product name>/<layer>/.../foo_bar.sql` #}
+    {% set product_value = model_file_path_list[1] %}
+    {% set layer_value = model_file_path_list[2] | capitalize %}
+    {% set domain_value = 'Hubble' %} {# -- HARD-CODED #}
+
+    {% set query_tag_string = '{"DOMAIN":"'~domain_value~'","ENV":"'~env_value~'","LAYER":"'~layer_value~'","PRODUCT":"'~product_value~'","DBT_MODEL":"'~model.name~'"}' %}
+
+    {{ return(query_tag_string) }}
+
+{% endmacro %}
