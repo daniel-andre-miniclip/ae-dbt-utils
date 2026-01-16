@@ -1,4 +1,9 @@
 
+# dbt related
 target/
 dbt_packages/
 logs/
+
+# Other
+dbt.log
+.python-version
